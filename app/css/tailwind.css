@@ -1,0 +1,45 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-stone-50 text-stone-800 antialiased;
+  }
+}
+
+@layer components {
+  .campo-etiqueta { @apply mb-1 block text-xs font-semibold uppercase tracking-wide text-stone-500; }
+  .campo {
+    @apply w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm shadow-sm
+      placeholder:text-stone-400 focus:border-brand-600 focus:outline-none focus:ring-2 focus:ring-brand-600/20
+      disabled:cursor-not-allowed disabled:bg-stone-100;
+  }
+  .campo-error { @apply mt-1 text-xs text-red-600; }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition
+      focus:outline-none focus:ring-2 focus:ring-brand-600/40 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primario { @apply btn bg-brand-800 text-white hover:bg-brand-900; }
+  .btn-secundario { @apply btn border border-stone-300 bg-white text-stone-700 hover:bg-stone-100; }
+  .btn-peligro { @apply btn bg-red-600 text-white hover:bg-red-700; }
+  /* Debe ir después de los .btn-* para reducir su tamaño. */
+  .btn-sm { @apply px-3 py-1.5 text-xs; }
+  .tarjeta { @apply rounded-2xl border border-stone-200 bg-white p-5 shadow-sm; }
+
+  .aviso-ok { @apply rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800; }
+  .aviso-error { @apply rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800; }
+  .aviso-info { @apply rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900; }
+
+  .insignia { @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold whitespace-nowrap; }
+  .insignia-verde { @apply insignia bg-emerald-100 text-emerald-800; }
+  .insignia-ambar { @apply insignia bg-amber-100 text-amber-800; }
+  .insignia-azul { @apply insignia bg-sky-100 text-sky-800; }
+  .insignia-roja { @apply insignia bg-red-100 text-red-800; }
+  .insignia-gris { @apply insignia bg-stone-100 text-stone-700; }
+
+  .tabla { @apply w-full text-left text-sm; }
+  .tabla th { @apply border-b border-stone-200 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-stone-500; }
+  .tabla td { @apply border-b border-stone-100 px-4 py-3 align-top; }
+  .tabla tbody tr:last-child td { @apply border-b-0; }
+}

@@ -3,9 +3,9 @@ import { formatearBs } from '~~/shared/utils/money'
 import type { ProductoDTO } from '~~/shared/types'
 
 const route = useRoute()
-const { agregar, items } = useCart()
+const cart = useCartStore()
 
-const { data: producto, error } = await useFetch<ProductoDTO>(() => `/api/products/${route.params.slug}`)
+const { data: producto, error, refresh } = await useFetch<ProductoDTO>(() => `/api/products/${route.params.slug}`)
 if (error.value || !producto.value) {
   throw createError({ statusCode: 404, statusMessage: 'Producto no encontrado', fatal: true })
 }
@@ -18,6 +18,28 @@ const talla = ref('')
 const cantidad = ref(1)
 const imagenActiva = ref(0)
 const agregado = ref(false)
+const aviso = ref('')
+const agregando = ref(false)
+
+// Stock en tiempo real: se vuelve a consultar cada 20 s mientras la pestaña está visible y al volver a ella.
+let temporizador: ReturnType<typeof setInterval> | undefined
+const refrescarSiVisible = () => { if (document.visibilityState === 'visible') refresh() }
+onMounted(() => {
+  temporizador = setInterval(refrescarSiVisible, 20_000)
+  document.addEventListener('visibilitychange', refrescarSiVisible)
+})
+onBeforeUnmount(() => {
+  clearInterval(temporizador)
+  document.removeEventListener('visibilitychange', refrescarSiVisible)
+})
+// Si la variante elegida se agotó mientras miraba la página, se deselecciona.
+watch(variantesDelColor, () => {
+  const v = variantesDelColor.value.find((x) => x.talla === talla.value)
+  if (talla.value && (!v || v.stock <= 0)) {
+    talla.value = ''
+    aviso.value = 'La talla que había elegido se agotó.'
+  }
+})
 
 // Al cambiar de color se limpia la talla si ya no tiene stock.
 watch(color, () => {
@@ -27,19 +49,36 @@ watch(color, () => {
 })
 
 const variante = computed(() => variantesDelColor.value.find((v) => v.talla === talla.value) ?? null)
-const enCarrito = computed(() => items.value.find((i) => i.sku === variante.value?.sku)?.cantidad ?? 0)
+const enCarrito = computed(() => cart.enCarrito(variante.value?.sku ?? ''))
 const maxCantidad = computed(() => Math.max(0, Math.min((variante.value?.stock ?? 0) - enCarrito.value, 50)))
 
-function agregarAlCarrito() {
+async function agregarAlCarrito() {
   const v = variante.value
   const p = producto.value
   if (!v || !p || maxCantidad.value < 1) return
-  agregar(
-    { productoId: p._id, slug: p.slug, nombre: p.nombre, imagen: p.imagenes[0] ?? '', sku: v.sku, color: v.color, talla: v.talla, precio: p.precio, stock: v.stock },
-    cantidad.value,
-  )
-  agregado.value = true
-  cantidad.value = 1
+  agregando.value = true
+  aviso.value = ''
+  agregado.value = false
+  try {
+    // Confirmación de stock con el servidor justo antes de agregar (la página pudo quedar desactualizada).
+    await refresh()
+    const actual = producto.value?.variantes.find((x) => x.sku === v.sku)
+    const disponible = actual?.stock ?? 0
+    const yaEnCarrito = cart.enCarrito(v.sku)
+    if (disponible - yaEnCarrito < cantidad.value) {
+      aviso.value = disponible <= 0 ? 'Lo sentimos, esta variante se agotó.' : `Solo quedan ${disponible} unidad(es) y ${yaEnCarrito} ya están en su carrito.`
+      cantidad.value = 1
+      return
+    }
+    cart.agregar(
+      { productoId: p._id, slug: p.slug, nombre: p.nombre, imagen: p.imagenes[0] ?? '', sku: v.sku, color: v.color, talla: v.talla, precio: p.precio, stock: disponible },
+      cantidad.value,
+    )
+    agregado.value = true
+    cantidad.value = 1
+  } finally {
+    agregando.value = false
+  }
 }
 </script>
 
@@ -61,7 +100,7 @@ function agregarAlCarrito() {
     <section class="space-y-5">
       <div>
         <p v-if="producto.categoria" class="text-xs font-medium uppercase tracking-wide text-stone-500">
-          <NuxtLink :to="{ path: '/', query: { categoria: producto.categoria.slug } }" class="hover:underline">{{ producto.categoria.nombre }}</NuxtLink>
+          <NuxtLink :to="{ path: '/productos', query: { categoria: producto.categoria.slug } }" class="hover:underline">{{ producto.categoria.nombre }}</NuxtLink>
         </p>
         <h1 class="text-3xl font-extrabold text-stone-900">{{ producto.nombre }}</h1>
         <p class="mt-2 text-3xl font-bold text-brand-800">{{ formatearBs(producto.precio) }}</p>
@@ -95,14 +134,16 @@ function agregarAlCarrito() {
           <label for="cant" class="campo-etiqueta">Cantidad</label>
           <input id="cant" v-model.number="cantidad" type="number" min="1" :max="Math.max(maxCantidad, 1)" class="campo w-24" :disabled="!variante || maxCantidad < 1" />
         </div>
-        <button type="button" class="btn-primario flex-1" :disabled="!variante || maxCantidad < 1 || cantidad < 1 || cantidad > maxCantidad" @click="agregarAlCarrito">
-          {{ !variante ? 'Elija una talla' : maxCantidad < 1 ? 'Máximo en su carrito' : 'Agregar al carrito' }}
+        <button type="button" class="btn-primario flex-1" :disabled="agregando || !variante || maxCantidad < 1 || cantidad < 1 || cantidad > maxCantidad" @click="agregarAlCarrito">
+          {{ !variante ? 'Elija una talla' : maxCantidad < 1 ? 'Máximo en su carrito' : agregando ? 'Verificando stock…' : 'Agregar al carrito' }}
         </button>
       </div>
 
+      <p v-if="aviso" class="aviso-info" role="alert">{{ aviso }}</p>
+
       <div v-if="agregado" class="flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800" role="status">
         <span>Agregado al carrito.</span>
-        <NuxtLink to="/checkout" class="font-semibold underline">Ir al checkout</NuxtLink>
+        <NuxtLink to="/carrito" class="font-semibold underline">Ver carrito</NuxtLink>
       </div>
     </section>
   </div>

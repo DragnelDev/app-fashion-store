@@ -12,7 +12,7 @@ import { getStorage } from '../utils/storage'
 /**
  * POST /api/upload?scope=producto|categoria|comprobante      (multipart/form-data, campo "file")
  *
- * - producto / categoria: requieren cabecera x-admin-key.
+ * - producto / categoria: requieren sesión de administrador (cookie de sesión, rol `admin`).
  * - comprobante: público (el cliente adjunta su pago QR/transferencia) con límite de 10 por minuto/IP.
  * La imagen se valida por contenido, se normaliza a WebP ≤1600 px sin metadatos y se guarda
  * con el driver configurado (local en desarrollo, Cloudinary en producción).
@@ -23,7 +23,7 @@ export default defineApiHandler(async (event): Promise<SubidaRespuesta> => {
   const maxBytes = Number(publica.uploadMaxMb) * 1024 * 1024
 
   if (scope === 'comprobante') limitarPeticiones(event, { clave: 'upload-comprobante', max: 10, ventanaMs: 60_000 })
-  else requireAdmin(event)
+  else await requireAdmin(event)
 
   if (!(getRequestHeader(event, 'content-type') ?? '').startsWith('multipart/form-data')) {
     throw apiError(415, 'Envíe la imagen como multipart/form-data (campo "file").')

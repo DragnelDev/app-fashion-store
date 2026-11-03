@@ -20,6 +20,17 @@ export interface IItemPedido {
   subtotal: number
 }
 
+export interface IHistorial {
+  tipo: 'pedido' | 'pago'
+  /** Estado anterior; `-` en el alta del pedido. */
+  de: string
+  a: string
+  fecha: Date
+  nota?: string
+  /** Administrador que hizo el cambio (auditoría; no se expone en la API). */
+  porUsuarioId?: Types.ObjectId
+}
+
 export interface IOrder {
   /** Número legible: VQ-2026-000123 */
   numero: string
@@ -45,6 +56,8 @@ export interface IOrder {
   comprobantePagoUrl?: string
   pagadoEn?: Date
   notas?: string
+  /** Bitácora de cambios de estado (pedido y pago). */
+  historial: IHistorial[]
   estadoRegistro: EstadoRegistro
   createdAt: Date
   updatedAt: Date
@@ -64,6 +77,18 @@ const itemSchema = new Schema<IItemPedido>(
     precioUnitario: money,
     cantidad: { type: Number, required: true, min: 1, validate: { validator: Number.isInteger, message: 'Cantidad entera' } },
     subtotal: money,
+  },
+  { _id: false },
+)
+
+const historialSchema = new Schema<IHistorial>(
+  {
+    tipo: { type: String, enum: ['pedido', 'pago'], required: true },
+    de: { type: String, required: true },
+    a: { type: String, required: true },
+    fecha: { type: Date, default: Date.now },
+    nota: { type: String, trim: true, maxlength: 300 },
+    porUsuarioId: { type: Schema.Types.ObjectId, ref: 'User' },
   },
   { _id: false },
 )
@@ -112,6 +137,7 @@ const orderSchema = new Schema<IOrder>(
     comprobantePagoUrl: { type: String, trim: true, maxlength: 500 },
     pagadoEn: { type: Date },
     notas: { type: String, trim: true, maxlength: 300 },
+    historial: { type: [historialSchema], default: [] },
   },
   {
     timestamps: true,
@@ -120,6 +146,8 @@ const orderSchema = new Schema<IOrder>(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       transform: (_doc, ret: any) => {
         delete ret.tokenAccesoHash
+        // La identidad del administrador queda solo en la base de datos (auditoría).
+        for (const h of ret.historial ?? []) delete h.porUsuarioId
         return limpiarJson(_doc, ret)
       },
     },
@@ -128,6 +156,7 @@ const orderSchema = new Schema<IOrder>(
 
 orderSchema.plugin(softDeletePlugin)
 orderSchema.index({ estadoRegistro: 1, estadoPedido: 1, createdAt: -1 })
+orderSchema.index({ usuarioId: 1, createdAt: -1 })
 
 export type OrderDocument = HydratedDocument<IOrder>
 export const Order: Model<IOrder> =

@@ -9,7 +9,7 @@ import { getStorage } from '../../utils/storage'
 
 /** POST /api/categories — crea una categoría (admin). */
 export default defineApiHandler(async (event) => {
-  requireAdmin(event)
+  await requireAdmin(event)
   const datos = categoriaCrearSchema.parse(await readBody(event))
 
   if (datos.imagenUrl && !getStorage(event).esUrlPropia(datos.imagenUrl, 'categoria')) {

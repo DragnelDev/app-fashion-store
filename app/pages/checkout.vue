@@ -15,7 +15,10 @@ import type { CrearPedidoRespuesta } from '~~/shared/types'
 
 useSeoMeta({ title: 'Checkout · Vestiq', robots: 'noindex' })
 
-const { items, subtotal, cambiarCantidad, quitar, vaciar, ajustarAStock } = useCart()
+const cart = useCartStore()
+const auth = useAuthStore()
+const { items, subtotal, hidratado } = storeToRefs(cart)
+const { cambiarCantidad, quitar, vaciar, ajustarAStock } = cart
 
 // --- Formulario ---------------------------------------------------------------
 const form = reactive({
@@ -40,6 +43,33 @@ const form = reactive({
 })
 const comprobantes = ref<string[]>([])
 
+// --- Datos de la cuenta (si hay sesión): contacto, dirección principal y facturación por defecto ---
+const direccionesGuardadas = computed(() => auth.usuario?.direcciones ?? [])
+function usarDireccion(id: string) {
+  const d = direccionesGuardadas.value.find((x) => x._id === id)
+  if (!d) return
+  form.envio.ciudad = d.ciudad
+  form.envio.zona = d.zona
+  form.envio.direccion = d.direccion
+  form.envio.referencia = d.referencia ?? ''
+}
+function precargarDesdeCuenta() {
+  const u = auth.usuario
+  if (!u) return
+  form.email = u.email
+  form.envio.nombreDestinatario = auth.nombreCompleto
+  form.envio.telefono = (u.telefono ?? '').replace(/^\+591/, '')
+  const principal = u.direcciones.find((d) => d.esPrincipal) ?? u.direcciones[0]
+  if (principal) usarDireccion(principal._id)
+  if (u.documento) {
+    form.facturacion.tipoDocumento = u.documento.tipo
+    form.facturacion.numeroDocumento = u.documento.numero
+    form.facturacion.complemento = u.documento.complemento ?? ''
+    form.facturacion.razonSocial = u.documento.razonSocial
+  }
+}
+precargarDesdeCuenta() // en setup: el HTML del servidor ya sale con los datos
+
 const ETIQUETA_PAGO: Record<MetodoPago, { titulo: string; detalle: string }> = {
   qr: { titulo: 'Pago por QR', detalle: 'Simple QR desde la app de su banco' },
   transferencia: { titulo: 'Transferencia bancaria', detalle: 'Depósito o transferencia a nuestra cuenta' },
@@ -56,6 +86,12 @@ const errores = ref<Record<string, string>>({})
 const errorGeneral = ref('')
 const enviando = ref(false)
 const problemasStock = ref<{ sku: string; nombre: string; disponible: number }[]>([])
+const avisosCarrito = ref<string[]>([])
+
+// Al abrir el checkout se contrastan precio y stock del carrito con el servidor.
+watch(hidratado, async (listo) => {
+  if (listo) avisosCarrito.value = await cart.sincronizar()
+}, { immediate: true })
 
 function usarNombreComoRazonSocial() {
   if (!form.facturacion.razonSocial) form.facturacion.razonSocial = form.envio.nombreDestinatario
@@ -126,17 +162,36 @@ function ajustarCarrito() {
   <div>
     <h1 class="mb-6 text-2xl font-extrabold text-stone-900">Finalizar compra</h1>
 
-    <div v-if="!items.length" class="tarjeta py-14 text-center">
+    <div v-if="!hidratado" class="tarjeta py-14 text-center text-stone-500" role="status">Cargando su carrito…</div>
+
+    <div v-else-if="!items.length" class="tarjeta py-14 text-center">
       <p class="text-lg font-semibold text-stone-800">Su carrito está vacío</p>
       <p class="mt-1 text-sm text-stone-500">Agregue productos para continuar con la compra.</p>
-      <NuxtLink to="/" class="btn-primario mt-5">Ir a la tienda</NuxtLink>
+      <NuxtLink to="/productos" class="btn-primario mt-5">Ir a la tienda</NuxtLink>
     </div>
 
     <form v-else class="grid gap-6 lg:grid-cols-[1fr_380px]" novalidate @submit.prevent="enviar">
       <div class="space-y-6">
+        <div v-if="avisosCarrito.length" class="aviso-info space-y-1" role="status">
+          <p v-for="a in avisosCarrito" :key="a">{{ a }}</p>
+        </div>
+
         <!-- Contacto -->
         <section class="tarjeta space-y-4" aria-labelledby="h-contacto">
-          <h2 id="h-contacto" class="text-lg font-bold">1. Contacto y envío</h2>
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h2 id="h-contacto" class="text-lg font-bold">1. Contacto y envío</h2>
+            <p v-if="!auth.autenticado" class="text-xs text-stone-500">
+              ¿Ya tiene cuenta? <NuxtLink :to="{ path: '/login', query: { redirect: '/checkout' } }" class="font-semibold text-brand-800 underline">Ingrese</NuxtLink> para usar sus datos guardados.
+            </p>
+            <p v-else class="text-xs text-stone-500">Comprando como <strong>{{ auth.usuario?.email }}</strong></p>
+          </div>
+          <div v-if="direccionesGuardadas.length > 1">
+            <label for="dir-guardada" class="campo-etiqueta">Usar una dirección guardada</label>
+            <select id="dir-guardada" class="campo" @change="usarDireccion(($event.target as HTMLSelectElement).value)">
+              <option value="">Elegir…</option>
+              <option v-for="d in direccionesGuardadas" :key="d._id" :value="d._id">{{ d.alias }} — {{ d.direccion }}, {{ d.ciudad }}</option>
+            </select>
+          </div>
           <div class="grid gap-4 sm:grid-cols-2">
             <CampoForm v-slot="{ id, describedby }" label="Nombre del destinatario" :error="errores['envio.nombreDestinatario']" requerido>
               <input :id="id" v-model="form.envio.nombreDestinatario" class="campo" autocomplete="name" :aria-describedby="describedby" @blur="usarNombreComoRazonSocial" />

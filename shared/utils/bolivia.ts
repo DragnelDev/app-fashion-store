@@ -29,11 +29,44 @@ export const ETIQUETA_DOCUMENTO: Record<TipoDocumento, string> = {
 export const METODOS_PAGO = ['qr', 'transferencia', 'contra_entrega'] as const
 export type MetodoPago = (typeof METODOS_PAGO)[number]
 
-export const ESTADOS_PEDIDO = ['pendiente', 'procesando', 'enviado', 'entregado'] as const
+export const ETIQUETA_METODO_PAGO: Record<MetodoPago, string> = {
+  qr: 'Pago por QR',
+  transferencia: 'Transferencia bancaria',
+  contra_entrega: 'Contra entrega (efectivo)',
+}
+
+export const ESTADOS_PEDIDO = ['pendiente', 'procesando', 'enviado', 'entregado', 'cancelado'] as const
 export type EstadoPedido = (typeof ESTADOS_PEDIDO)[number]
 
-export const ESTADOS_PAGO = ['pendiente', 'pagado'] as const
+export const ETIQUETA_ESTADO_PEDIDO: Record<EstadoPedido, string> = {
+  pendiente: 'Pendiente',
+  procesando: 'Procesando',
+  enviado: 'Enviado',
+  entregado: 'Entregado',
+  cancelado: 'Cancelado',
+}
+
+/**
+ * Transiciones permitidas del estado del pedido. `entregado` y `cancelado` son finales.
+ * Solo se cancela antes del envío (cancelar devuelve el stock al inventario).
+ */
+export const TRANSICIONES_PEDIDO: Record<EstadoPedido, readonly EstadoPedido[]> = {
+  pendiente: ['procesando', 'cancelado'],
+  procesando: ['enviado', 'cancelado'],
+  enviado: ['entregado'],
+  entregado: [],
+  cancelado: [],
+}
+
+/** `rechazado`: el administrador no aceptó el comprobante; el cliente puede subir otro. */
+export const ESTADOS_PAGO = ['pendiente', 'pagado', 'rechazado'] as const
 export type EstadoPago = (typeof ESTADOS_PAGO)[number]
+
+export const ETIQUETA_ESTADO_PAGO: Record<EstadoPago, string> = {
+  pendiente: 'Pendiente',
+  pagado: 'Pagado',
+  rechazado: 'Rechazado',
+}
 
 /** Soft-delete: nada se borra físicamente; "eliminado" oculta el registro. */
 export const ESTADOS_REGISTRO = ['activo', 'inactivo', 'eliminado'] as const

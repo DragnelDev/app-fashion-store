@@ -1,6 +1,8 @@
 import { z } from 'zod'
 import {
   CIUDADES_BOLIVIA,
+  ESTADOS_PAGO,
+  ESTADOS_PEDIDO,
   METODOS_PAGO,
   REGEX_TELEFONO_BO,
   TIPOS_DOCUMENTO,
@@ -78,6 +80,33 @@ export const pedidoSchema = z.object({
 
 export type PedidoInput = z.infer<typeof pedidoSchema>
 export type PedidoFormInput = z.input<typeof pedidoSchema>
+
+/** Valida el carrito guardado en el navegador contra el stock y precio vigentes. */
+export const carritoValidarSchema = z.object({
+  items: z
+    .array(z.object({ productoId: objectIdSchema, sku: z.string().trim().min(1).max(40) }))
+    .min(1, 'Su carrito está vacío')
+    .max(50),
+})
+
+/** PATCH /api/admin/orders/:numero — nuevo estado del pedido y/o del pago (al menos uno). */
+export const pedidoEstadoSchema = z
+  .object({
+    estadoPedido: z.enum(['procesando', 'enviado', 'entregado', 'cancelado']).optional(),
+    estadoPago: z.enum(ESTADOS_PAGO).optional(),
+    nota: z.string().trim().max(300).optional(),
+  })
+  .refine((v) => v.estadoPedido !== undefined || v.estadoPago !== undefined, { message: 'Indique el nuevo estado del pedido o del pago.' })
+export type PedidoEstadoInput = z.infer<typeof pedidoEstadoSchema>
+
+export const pedidosAdminQuerySchema = z.object({
+  estadoPedido: z.enum(ESTADOS_PEDIDO).optional(),
+  estadoPago: z.enum(ESTADOS_PAGO).optional(),
+  metodoPago: z.enum(METODOS_PAGO).optional(),
+  q: z.string().trim().max(80).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+})
 
 /** Convierte los issues de Zod en { "envio.ciudad": "mensaje" } para mostrar bajo cada campo. */
 export function erroresPorCampo(error: z.ZodError): Record<string, string> {

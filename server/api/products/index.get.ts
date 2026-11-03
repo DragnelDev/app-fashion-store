@@ -12,11 +12,11 @@ const ORDEN = {
 } as const
 
 /**
- * GET /api/products?categoria=<slug>&talla=M&color=Negro&q=camisa&orden=precio_asc&page=1&limit=12
+ * GET /api/products?categoria=<slug>&talla=M&color=Negro&precioMin=50&precioMax=200&q=camisa&orden=precio_asc&page=1&limit=12
  * `talla` y `color` solo devuelven productos con stock > 0 en esa variante.
  */
 export default defineApiHandler(async (event): Promise<Paginado<ProductoDTO>> => {
-  const { categoria, talla, color, q, orden, page, limit } = await getValidatedQuery(event, productoQuerySchema.parse)
+  const { categoria, talla, color, q, precioMin, precioMax, orden, page, limit } = await getValidatedQuery(event, productoQuerySchema.parse)
 
   const filtro: Record<string, unknown> = { estadoRegistro: 'activo' }
 
@@ -32,6 +32,12 @@ export default defineApiHandler(async (event): Promise<Paginado<ProductoDTO>> =>
     filtro.variantes = { $elemMatch: variante }
   }
   if (q) filtro.nombre = new RegExp(escaparRegex(q), 'i')
+  if (precioMin !== undefined || precioMax !== undefined) {
+    filtro.precio = {
+      ...(precioMin !== undefined ? { $gte: precioMin } : {}),
+      ...(precioMax !== undefined ? { $lte: precioMax } : {}),
+    }
+  }
 
   const [total, items] = await Promise.all([
     Product.countDocuments(filtro),

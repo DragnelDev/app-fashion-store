@@ -1,12 +1,12 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
 //
 // Variables de entorno (ver .env.example). Nuxt sobreescribe `runtimeConfig` en tiempo de
-// ejecución con variables NUXT_* (p. ej. NUXT_MONGODB_URI, NUXT_CLOUDINARY_API_SECRET), por lo
+// ejecución con variables NUXT_* (p. ej. NUXT_MONGODB_URI → mongodbUri, NUXT_CLOUDINARY_API_SECRET), por lo
 // que ningún secreto queda grabado en el build: aquí solo se declaran valores vacíos.
 export default defineNuxtConfig({
   compatibilityDate: "2025-07-15",
   devtools: { enabled: true },
-  modules: ["@nuxtjs/tailwindcss"],
+  modules: ["@pinia/nuxt", "@nuxtjs/tailwindcss"],
 
   tailwindcss: {
     cssPath: "~/assets/css/tailwind.css",
@@ -43,11 +43,13 @@ export default defineNuxtConfig({
 
   runtimeConfig: {
     // --- Solo servidor (NUXT_*) -------------------------------------------------
-    NUXT_MONGODB_URI: "",
-    mongodbUri: "",
-    NUXT_ADMIN_API_KEY: "",
-    adminApiKey: "",
-    NUXT_TRUST_PROXY: false,
+    mongodbUri: process.env.NUXT_MONGODB_URI,
+    /** NUXT_SESSION_SECRET — firma las cookies de sesión (mínimo 32 caracteres; obligatorio en producción) */
+    sessionSecret: "",
+    /** NUXT_ADMIN_EMAIL / NUXT_ADMIN_PASSWORD — crean el primer administrador al arrancar (plugins/admin-seed.ts) */
+    adminEmail: "",
+    adminPassword: "",
+    /** NUXT_TRUST_PROXY — true solo detrás de un proxy/CDN de confianza */
     trustProxy: false,
     storage: {
       /** NUXT_STORAGE_DRIVER — "local" (desarrollo, disco) | "cloudinary" (producción) */

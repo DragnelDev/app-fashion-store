@@ -14,7 +14,7 @@ import { getStorage } from '../../utils/storage'
  * Precio en Bs. con IVA incluido.
  */
 export default defineApiHandler(async (event) => {
-  requireAdmin(event)
+  await requireAdmin(event)
   const datos = productoCrearSchema.parse(await readBody(event))
 
   const storage = getStorage(event)

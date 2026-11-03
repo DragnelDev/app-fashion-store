@@ -25,7 +25,7 @@ export interface IUser {
   nombre: string
   apellido: string
   email: string
-  /** Hash (bcrypt/argon2) para el login futuro. Nunca se serializa ni se selecciona por defecto. */
+  /** Hash scrypt de la contraseña (utils/password.ts). Nunca se serializa ni se selecciona por defecto. */
   passwordHash?: string
   rol: Rol
   /** Formato E.164 boliviano: +591XXXXXXXX */

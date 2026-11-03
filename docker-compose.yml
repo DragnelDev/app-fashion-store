@@ -1,0 +1,20 @@
+# MongoDB de desarrollo como replica set de un solo nodo: habilita las TRANSACCIONES que usa
+# POST /api/orders (descuento de stock + pedido). Un `mongod` standalone no las soporta.
+#   docker compose up -d
+#   NUXT_MONGODB_URI=mongodb://127.0.0.1:27017/vestiq?replicaSet=rs0&directConnection=true
+services:
+  mongo:
+    image: mongo:7
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    ports: ["27017:27017"]
+    volumes: ["mongo-data:/data/db"]
+    healthcheck:
+      test: >
+        mongosh --quiet --eval
+        "try { rs.status().ok } catch (e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'127.0.0.1:27017'}]}).ok }"
+      interval: 5s
+      timeout: 10s
+      retries: 10
+      start_period: 5s
+volumes:
+  mongo-data:

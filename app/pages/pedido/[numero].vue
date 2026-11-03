@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ETIQUETA_DOCUMENTO } from '~~/shared/utils/bolivia'
+import { ETIQUETA_DOCUMENTO, ETIQUETA_METODO_PAGO } from '~~/shared/utils/bolivia'
 import { formatearBs } from '~~/shared/utils/money'
 import type { PedidoDTO } from '~~/shared/types'
 
@@ -11,15 +11,17 @@ const { data: pedido, error, refresh } = await useFetch<PedidoDTO>(() => `/api/o
   query: { t: token },
 })
 
-const etiquetaPedido: Record<string, string> = { pendiente: 'Pendiente', procesando: 'Procesando', enviado: 'Enviado', entregado: 'Entregado' }
-const etiquetaMetodo: Record<string, string> = { qr: 'Pago por QR', transferencia: 'Transferencia bancaria', contra_entrega: 'Contra entrega (efectivo)' }
+const auth = useAuthStore()
+const { public: publica } = useRuntimeConfig()
 
 const comprobante = ref<string[]>([])
 const guardando = ref(false)
 const mensaje = ref('')
 const errorComprobante = ref('')
 
-const puedeAdjuntar = computed(() => pedido.value && pedido.value.metodoPago !== 'contra_entrega' && pedido.value.estadoPago === 'pendiente')
+// Se puede adjuntar (o reemplazar) el comprobante mientras el pago no esté confirmado ni el pedido cancelado.
+const puedeAdjuntar = computed(() => !!pedido.value && pedido.value.metodoPago !== 'contra_entrega'
+  && pedido.value.estadoPago !== 'pagado' && pedido.value.estadoPedido !== 'cancelado')
 
 const imprimir = () => window.print()
 
@@ -31,7 +33,7 @@ async function guardarComprobante() {
   try {
     await $fetch(`/api/orders/${route.params.numero}/comprobante`, {
       method: 'PATCH',
-      body: { token: token.value, url: comprobante.value[0] },
+      body: { token: token.value || undefined, url: comprobante.value[0] },
     })
     comprobante.value = []
     mensaje.value = 'Comprobante recibido. Confirmaremos su pago a la brevedad.'
@@ -47,30 +49,33 @@ async function guardarComprobante() {
 <template>
   <div v-if="error || !pedido" class="tarjeta mx-auto max-w-lg py-12 text-center">
     <p class="text-lg font-semibold">No encontramos este pedido</p>
-    <p class="mt-1 text-sm text-stone-500">Verifique que el enlace esté completo (incluye un código de acceso).</p>
-    <NuxtLink to="/" class="btn-primario mt-5">Volver a la tienda</NuxtLink>
+    <p class="mt-1 text-sm text-stone-500">Verifique que el enlace esté completo (incluye un código de acceso){{ auth.autenticado ? '' : ' o inicie sesión con la cuenta con la que compró' }}.</p>
+    <NuxtLink v-if="!auth.autenticado" :to="{ path: '/login', query: { redirect: route.fullPath } }" class="btn-secundario mt-5">Iniciar sesión</NuxtLink>
+    <NuxtLink to="/productos" class="btn-primario ml-2 mt-5">Volver a la tienda</NuxtLink>
   </div>
 
   <article v-else class="mx-auto max-w-3xl space-y-6">
     <header class="flex flex-wrap items-start justify-between gap-3">
       <div>
-        <p class="text-sm font-medium text-emerald-700 print:hidden">¡Gracias por su compra!</p>
+        <p v-if="pedido.estadoPedido !== 'cancelado'" class="text-sm font-medium text-emerald-700 print:hidden">¡Gracias por su compra!</p>
         <h1 class="text-2xl font-extrabold">Pedido {{ pedido.numero }}</h1>
         <p class="text-sm text-stone-500">{{ new Date(pedido.createdAt).toLocaleString('es-BO') }}</p>
       </div>
       <div class="flex flex-wrap items-center gap-2">
-        <span class="rounded-full bg-stone-100 px-3 py-1 text-xs font-semibold text-stone-700">Pedido: {{ etiquetaPedido[pedido.estadoPedido] }}</span>
-        <span class="rounded-full px-3 py-1 text-xs font-semibold" :class="pedido.estadoPago === 'pagado' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'">
-          Pago: {{ pedido.estadoPago === 'pagado' ? 'Pagado' : 'Pendiente' }}
-        </span>
+        <EstadoBadge tipo="pedido" :valor="pedido.estadoPedido" />
+        <EstadoBadge tipo="pago" :valor="pedido.estadoPago" />
         <button type="button" class="btn-secundario print:hidden" @click="imprimir">Imprimir recibo</button>
       </div>
     </header>
 
     <section v-if="puedeAdjuntar" class="tarjeta space-y-4 print:hidden" aria-labelledby="h-pagar">
       <h2 id="h-pagar" class="text-lg font-bold">Complete su pago</h2>
+      <p v-if="pedido.estadoPago === 'rechazado'" class="aviso-error" role="alert">
+        No pudimos validar su comprobante. Adjunte uno nuevo (o escríbanos
+        <a v-if="publica.pago.whatsapp" :href="`https://wa.me/${publica.pago.whatsapp}`" target="_blank" rel="noopener" class="font-semibold underline">por WhatsApp</a><template v-else>por WhatsApp</template>).
+      </p>
       <PagoInstrucciones :metodo="pedido.metodoPago" :total="pedido.totales.total" />
-      <div v-if="pedido.comprobantePagoUrl" class="flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+      <div v-if="pedido.comprobantePagoUrl && pedido.estadoPago !== 'rechazado'" class="flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
         <img :src="pedido.comprobantePagoUrl" alt="Comprobante enviado" class="h-14 w-14 rounded object-cover" />
         <span>Comprobante recibido. Está en revisión; puede reemplazarlo si se equivocó.</span>
       </div>
@@ -118,7 +123,7 @@ async function guardarComprobante() {
           {{ ETIQUETA_DOCUMENTO[pedido.facturacion.tipoDocumento] }}: {{ pedido.facturacion.numeroDocumento }}<template v-if="pedido.facturacion.complemento">-{{ pedido.facturacion.complemento }}</template>
         </p>
         <p class="text-stone-600">{{ pedido.email }}</p>
-        <p class="mt-2 text-xs text-stone-500">{{ etiquetaMetodo[pedido.metodoPago] }}</p>
+        <p class="mt-2 text-xs text-stone-500">{{ ETIQUETA_METODO_PAGO[pedido.metodoPago] }}</p>
       </section>
       <section class="tarjeta text-sm" aria-labelledby="h-env">
         <h2 id="h-env" class="mb-2 text-base font-bold">Datos de envío</h2>
@@ -130,6 +135,9 @@ async function guardarComprobante() {
       </section>
     </div>
 
-    <p class="text-center text-xs text-stone-500 print:hidden">Guarde este enlace: es su acceso privado al pedido.</p>
+    <p v-if="token" class="text-center text-xs text-stone-500 print:hidden">Guarde este enlace: es su acceso privado al pedido.</p>
+    <p v-else-if="auth.autenticado" class="text-center text-xs text-stone-500 print:hidden">
+      Encuentre todos sus pedidos en <NuxtLink to="/cuenta/pedidos" class="underline">Mi cuenta</NuxtLink>.
+    </p>
   </article>
 </template>

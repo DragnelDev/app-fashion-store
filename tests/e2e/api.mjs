@@ -2,32 +2,52 @@ import sharp from 'sharp'
 /**
  * Pruebas de integración de la API contra un servidor en ejecución.
  *
- *   BASE_URL=http://127.0.0.1:3000 ADMIN_API_KEY=<clave> node tests/e2e/api.mjs
+ *   BASE_URL=http://127.0.0.1:3000 ADMIN_EMAIL=<correo> ADMIN_PASSWORD=<clave> node tests/e2e/api.mjs
+ *   (el mismo NUXT_ADMIN_EMAIL / NUXT_ADMIN_PASSWORD con que arrancó el servidor)
  *
  * ⚠️ Crea datos reales (categoría, producto, pedidos): úselo SOLO con una base de datos
  * descartable y con NUXT_STORAGE_DRIVER=local. Reinicie el servidor entre ejecuciones
  * (los límites de peticiones están en memoria).
  */
 const B = process.env.BASE_URL ?? 'http://127.0.0.1:3000'
-const KEY = process.env.ADMIN_API_KEY ?? ''
-if (!KEY) { console.error('Defina ADMIN_API_KEY (la misma de NUXT_ADMIN_API_KEY del servidor).'); process.exit(2) }
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL ?? ''
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? ''
+if (!ADMIN_EMAIL || !ADMIN_PASSWORD) { console.error('Defina ADMIN_EMAIL y ADMIN_PASSWORD (los de NUXT_ADMIN_* del servidor).'); process.exit(2) }
+let COOKIE = ''
 let ok = 0, fail = 0
 const check = (nombre, cond, extra = '') => { cond ? ok++ : fail++; console.log(`${cond ? 'OK  ' : 'FAIL'} ${nombre}${cond ? '' : '  -> ' + extra}`) }
 const j = async (r) => { try { return await r.json() } catch { return null } }
 const api = (path, { method = 'GET', body, admin = false, headers = {} } = {}) =>
-  fetch(B + path, { method, headers: { ...(body ? { 'content-type': 'application/json' } : {}), ...(admin ? { 'x-admin-key': KEY } : {}), ...headers }, body: body ? JSON.stringify(body) : undefined })
+  fetch(B + path, { method, headers: { ...(body ? { 'content-type': 'application/json' } : {}), ...(admin && COOKIE ? { cookie: COOKIE } : {}), ...headers }, body: body ? JSON.stringify(body) : undefined })
 const png = async (w = 800, h = 600) => sharp({ create: { width: w, height: h, channels: 3, background: '#b91c4c' } }).png().toBuffer()
 const subir = async (buf, scope, admin, nombre = 'foto.png', tipo = 'image/png') => {
   const fd = new FormData(); fd.append('file', new Blob([buf], { type: tipo }), nombre)
-  return fetch(`${B}/api/upload?scope=${scope}`, { method: 'POST', body: fd, headers: admin ? { 'x-admin-key': KEY } : {} })
+  return fetch(`${B}/api/upload?scope=${scope}`, { method: 'POST', body: fd, headers: admin && COOKIE ? { cookie: COOKIE } : {} })
 }
 
+// --- Sesión ---
+let r = await api('/api/auth/login', { method: 'POST', body: { email: ADMIN_EMAIL, password: 'incorrecta1' } })
+check('login con contraseña errónea => 401', r.status === 401, r.status)
+r = await api('/api/auth/login', { method: 'POST', body: { email: ADMIN_EMAIL, password: ADMIN_PASSWORD } })
+const sesion = (r.headers.get('set-cookie') ?? '').split(';')[0]
+check('login admin => 200 con cookie httpOnly', r.status === 200 && sesion.startsWith('vestiq-session=') && /httponly/i.test(r.headers.get('set-cookie')), r.status)
+COOKIE = sesion
+check('GET /api/auth/me con sesión => rol admin', (await j(await api('/api/auth/me', { admin: true })))?.rol === 'admin')
+check('GET /api/auth/me sin sesión => null', (await j(await api('/api/auth/me'))) === null)
+const email = `cliente${Date.now()}@correo.com`
+r = await api('/api/auth/register', { method: 'POST', body: { nombre: 'Ana', apellido: 'Rojas', email, password: 'clave1234', telefono: '71234567' } })
+const cliente = (r.headers.get('set-cookie') ?? '').split(';')[0]
+check('registro => 201, rol client', r.status === 201 && (await j(r)).rol === 'client', r.status)
+check('cliente no entra a /api/admin => 403', (await api('/api/admin/stats', { headers: { cookie: cliente } })).status === 403)
+check('sin sesión /api/admin => 401', (await api('/api/admin/stats')).status === 401)
+check('admin /api/admin/stats => 200', (await api('/api/admin/stats', { admin: true })).status === 200)
+
 // --- Seguridad básica ---
-check('categorías: POST sin clave => 401', (await api('/api/categories', { method: 'POST', body: { nombre: 'X' } })).status === 401)
-check('upload producto sin clave => 401', (await subir(await png(), 'producto', false)).status === 401)
+check('categorías: POST sin sesión => 401', (await api('/api/categories', { method: 'POST', body: { nombre: 'X' } })).status === 401)
+check('upload producto sin sesión => 401', (await subir(await png(), 'producto', false)).status === 401)
 
 // --- Upload ---
-let r = await subir(await png(2400, 1800), 'producto', true); let up = await j(r)
+r = await subir(await png(2400, 1800), 'producto', true); let up = await j(r)
 check('upload producto => 201 y webp ≤1600px', r.status === 201 && up.format === 'webp' && up.width === 1600 && up.url.startsWith('/uploads/producto/'), JSON.stringify(up))
 const img1 = up.url
 r = await fetch(B + img1); check('GET imagen subida => 200 image/webp', r.status === 200 && r.headers.get('content-type') === 'image/webp')
@@ -101,6 +121,15 @@ r = await subir(await png(), 'comprobante', false); const comp2 = await j(r)
 r = await api(`/api/orders/${o1.numero}/comprobante`, { method: 'PATCH', body: { token: o1.token, url: comp2.url } }); const p2 = await j(r)
 check('PATCH comprobante => 200 y URL actualizada', r.status === 200 && p2.comprobantePagoUrl === comp2.url, JSON.stringify(p2).slice(0, 200))
 r = await api(`/api/orders/${o1.numero}/comprobante`, { method: 'PATCH', body: { token: 'x'.repeat(20), url: comp2.url } }); check('PATCH con token errado => 404', r.status === 404)
+
+// --- Panel: estados del pedido ---
+r = await api(`/api/admin/orders/${o1.numero}`, { method: 'PATCH', admin: true, body: { estadoPedido: 'enviado' } })
+check('enviar sin pago confirmado (QR) => 409', r.status === 409, r.status)
+r = await api(`/api/admin/orders/${o1.numero}`, { method: 'PATCH', admin: true, body: { estadoPago: 'pagado' } }); const conf = await j(r)
+check('confirmar pago => procesando y pagado', r.status === 200 && conf.estadoPago === 'pagado' && conf.estadoPedido === 'procesando' && conf.historial.length === 3, JSON.stringify(conf).slice(0, 200))
+r = await api(`/api/admin/orders/${o1.numero}`, { method: 'PATCH', admin: true, body: { estadoPedido: 'cancelado' } })
+check('cancelar => 200 y devuelve el stock (3 -> 5)', r.status === 200 && (await j(await api('/api/products/camisa-lino-azul'))).variantes[0].stock === 5)
+r = await api(`/api/admin/orders/${o1.numero}`, { method: 'PATCH', admin: true, body: { estadoPedido: 'procesando' } }); check('pedido cancelado es final => 409', r.status === 409)
 
 console.log(`\n${ok} OK, ${fail} FAIL`)
 process.exit(fail ? 1 : 0)

@@ -5,6 +5,8 @@ import type { SubidaRespuesta } from '~~/shared/types'
 /**
  * Subida de imágenes con arrastrar y soltar, previsualización inmediata y estado por archivo.
  * v-model: lista de URLs ya subidas (devueltas por POST /api/upload).
+ * Para `producto` y `categoria` la API exige sesión de administrador (la cookie viaja sola);
+ * `comprobante` es público.
  */
 const props = withDefaults(
   defineProps<{
@@ -12,12 +14,10 @@ const props = withDefaults(
     scope: ScopeUpload
     multiple?: boolean
     max?: number
-    /** Clave de administración (scope producto/categoria). */
-    adminKey?: string
     label?: string
     ayuda?: string
   }>(),
-  { multiple: false, max: 8, adminKey: '', label: '', ayuda: '' },
+  { multiple: false, max: 8, label: '', ayuda: '' },
 )
 const emit = defineEmits<{ 'update:modelValue': [urls: string[]]; error: [mensaje: string] }>()
 
@@ -73,7 +73,6 @@ async function subir(item: Archivo, file: File) {
       method: 'POST',
       query: { scope: props.scope },
       body: fd,
-      headers: props.adminKey ? { 'x-admin-key': props.adminKey } : undefined,
     })
     item.url = res.url
     item.estado = 'ok'
